@@ -2,22 +2,26 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.special import jv  # Bessel function of the first kind
 
-def A(a,n,e):
+def A(a, nmax, e):
+    n = np.arange(1, nmax+1)
     ne = n*e
-    return (a**2/n)*(jv(n-2,ne) - jv(n+2,ne) -2*e*(jv(n-1,ne)-jv(n+1,ne)))
+    return (a**2/n)*(jv(n-2, ne) - jv(n+2, ne) - 2*e*(jv(n-1, ne) - jv(n+1, ne)))
 
-def B(a,n,e):
+def B(a, nmax, e):
+    n = np.arange(1, nmax+1)
     ne = n*e
-    return (a**2/n)*(1-e**2)*(jv(n+2,ne)-jv(n-2,ne))
+    return (a**2/n)*(1-e**2)*(jv(n+2, ne)-jv(n-2, ne))
 
-def C(a,n,e):
+def C(a, nmax, e):
+    n = np.arange(1, nmax+1)
     ne = n*e
-    return (a**2/n)*((1-e**2)**(1/2))*(jv(n+2,ne)+jv(n-2,ne)-e*(jv(n+1,ne)+jv(n-1,ne)))
+    return (a**2/n)*np.sqrt(1-e**2)*(jv(n+2, ne)+jv(n-2, ne)-e*(jv(n+1, ne)+jv(n-1, ne)))
 
 #"Independent" variables (at least independent to begin with)
-a0 = 0.5 #Initial Semimajor Axis
+# Units of 0.001AU = 0.001year = 1solar mass = 1
+a0 = 2 #Initial Semimajor Axis
 e0 = 0.2 #Initial Eccentricity
-G = 1.24e-6 #Gravitational Constant
+G = 0.03948 #Gravitational Constant
 m1 = 1 #Mass of Primary
 m2 = 1 #Mass of Secondary
 c = 63072 #Speed of Light
@@ -26,8 +30,8 @@ I = 0 #Angle of Inclination
 φ = 0 #Angle of Pericentre
 
 #Number of timesteps and the time interval value
-N = 780
-h = 10
+N = 10000
+h = 1
 
 y0 = np.array([a0,e0])
 
@@ -51,27 +55,42 @@ def rk4(y0,func,N,h):
         M[i,:] = y + (k1 + 2*k2 + 2*k3 + k4)/6
     return M
 
-Y = rk4(y0,f,N,0.0001)
+Y = rk4(y0,f,N,h)
     
 mu = (m1*m2)/(m1+m2)    
 
-def hplus(a,e,t):
-    HPLUS = np.linspace(0,0,10)
-    ω = (G*(m1+m2)/a**3)**(1/2)
+def hplus(a, e, t, nmax=100):
+    n = np.arange(1, nmax+1)
+    ω = np.sqrt(G*(m1+m2)/a**3)
 
-    for i in range(0,10):
-        HPLUS[i] = ((A(a,i+1,e))*((np.cos(φ))**2-((np.sin(φ))**2)*(np.cos(I))**2)+(B(a,i+1,e))*((np.sin(φ))**2-((np.cos(φ))**2)*(np.cos(I))**2)-(C(a,i+1,e))*(np.sin(2*φ))*(1+(np.cos(I))**2))*np.cos((i+1)*ω*t)
+    A_n = A(a, nmax, e)
+    B_n = B(a, nmax, e)
+    C_n = C(a, nmax, e)
 
-    return -(mu*(ω**2)*G/(r*c**4))*np.sum(HPLUS)
+    cos_term = np.cos(n * ω * t)
+    HPLUS = (
+        A_n*((np.cos(φ))**2 - (np.sin(φ))**2*(np.cos(I))**2)
+        + B_n*((np.sin(φ))**2 - (np.cos(φ))**2*(np.cos(I))**2)
+        - C_n*(np.sin(2*φ))*(1+(np.cos(I))**2)
+    ) * cos_term
 
-def hcross(a,e,t):
-    HCROSS = np.linspace(0,0,10)
-    ω = (G*(m1+m2)/a**3)**(1/2)
+    return -(mu*(ω**2)*G/(r*c**4)) * np.sum(HPLUS)
 
-    for i in range(0,10):
-        HCROSS[i] = ((np.cos(2*φ))*(np.cos(I))*C(a,i+1,e)+(A(a,i+1,e)-B(a,i+1,e))*(np.sin(2*φ))*(np.sin(I)))*np.sin((i+1)*ω*t)
+def hcross(a, e, t, nmax=100):
+    n = np.arange(1, nmax+1)
+    ω = np.sqrt(G*(m1+m2)/a**3)
 
-    return -(mu*(ω**2)*G/(r*c**4))*np.sum(HCROSS)
+    A_n = A(a, nmax, e)
+    B_n = B(a, nmax, e)
+    C_n = C(a, nmax, e)
+
+    sin_term = np.sin(n * ω * t)
+    HCROSS = (
+        np.cos(2*φ)*np.cos(I)*C_n
+        + (A_n - B_n)*np.sin(2*φ)*np.sin(I)
+    ) * sin_term
+
+    return -(mu*(ω**2)*G/(r*c**4)) * np.sum(HCROSS)
 
 a = np.zeros(N+1)
 e = np.zeros(N+1)
@@ -88,5 +107,10 @@ for i in range(0,N+1):
     hcr[i] = hcross(a[i],e[i],t[i])
     hpl[i] = hplus(a[i],e[i],t[i])
 
-plt.plot(t,hcr, label='H+ over time', color='blue')
+plt.plot(t, hcr, label='Hx (cross) over time', color='blue')
+plt.plot(t, hpl, label='H+ (plus) over time', color='red')
+plt.legend()
+plt.xlabel("Time (years)")
+plt.ylabel("Strain amplitude")
+plt.title("Gravitational Wave Polarizations Over Time")
 plt.show()
